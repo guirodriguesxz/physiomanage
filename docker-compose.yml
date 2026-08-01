@@ -16,11 +16,24 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: physiomanage-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   app:
     build: .
     container_name: physiomanage-app
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       DB_HOST: db
@@ -28,9 +41,17 @@ services:
       DB_NAME: physiomanage
       DB_USER: physiomanage
       DB_PASSWORD: physiomanage
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       JWT_SECRET: local-dev-secret-change-in-production-please-256-bits
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   physiomanage_pgdata:

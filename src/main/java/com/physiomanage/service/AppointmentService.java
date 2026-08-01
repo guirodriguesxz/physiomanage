@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +55,7 @@ public class AppointmentService {
     private final ProfessionalRepository professionalRepository;
     private final ClinicRepository clinicRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final AvailabilityCache availabilityCache;
 
     @Transactional
     public Appointment create(AppointmentRequest request) {
@@ -76,6 +78,7 @@ public class AppointmentService {
         appointment.setNotes(request.notes());
 
         Appointment saved = saveWithOverlapGuard(appointment);
+        evictAvailability(clinicId, professional.getId(), saved.getScheduledAt());
 
         /*
          * Publicado aqui (ainda dentro da transação) mas só entregue ao
@@ -121,6 +124,8 @@ public class AppointmentService {
     public Appointment reschedule(UUID id, AppointmentRequest request) {
         Appointment appointment = findOwnedAppointment(id);
         UUID clinicId = ClinicContext.getClinicId();
+        UUID previousProfessionalId = appointment.getProfessional().getId();
+        Instant previousScheduledAt = appointment.getScheduledAt();
 
         Patient patient = findOwnedPatient(request.patientId(), clinicId);
         Professional professional = findOwnedProfessional(request.professionalId(), clinicId);
@@ -134,7 +139,10 @@ public class AppointmentService {
         appointment.setDurationMinutes(durationMinutes);
         appointment.setNotes(request.notes());
 
-        return saveWithOverlapGuard(appointment);
+        Appointment saved = saveWithOverlapGuard(appointment);
+        evictAvailability(clinicId, previousProfessionalId, previousScheduledAt);
+        evictAvailability(clinicId, professional.getId(), saved.getScheduledAt());
+        return saved;
     }
 
     @Transactional
@@ -154,7 +162,9 @@ public class AppointmentService {
         }
 
         appointment.setStatus(newStatus);
-        return appointmentRepository.save(appointment);
+        Appointment saved = appointmentRepository.save(appointment);
+        evictAvailability(ClinicContext.getClinicId(), saved.getProfessional().getId(), saved.getScheduledAt());
+        return saved;
     }
 
     private int resolveDuration(AppointmentRequest request) {
@@ -175,6 +185,10 @@ public class AppointmentService {
         } catch (DataIntegrityViolationException e) {
             throw new ScheduleConflictException();
         }
+    }
+
+    private void evictAvailability(UUID clinicId, UUID professionalId, Instant scheduledAt) {
+        availabilityCache.evict(clinicId, professionalId, scheduledAt.atZone(ZoneOffset.UTC).toLocalDate());
     }
 
     private void checkAvailability(UUID professionalId, Instant scheduledAt, int durationMinutes, UUID excludeAppointmentId) {

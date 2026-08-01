@@ -9,10 +9,12 @@ containerização) aplicadas a um domínio de negócio real.
 
 - **Java 21 + Spring Boot 3** (Web, Security, Data JPA, Validation)
 - **PostgreSQL** + **Flyway** (migrations versionadas, nunca `ddl-auto=update`)
+- **Redis** — cache de disponibilidade de horários
 - **JWT** (biblioteca `jjwt`) para autenticação stateless
 - **springdoc-openapi** — Swagger UI automático
-- **JUnit 5 + Testcontainers** — testes de integração com Postgres real
+- **JUnit 5 + Testcontainers** — testes de integração com Postgres e Redis reais
 - **Docker / docker-compose** — ambiente reproduzível com 1 comando
+- **GitHub Actions** — CI (build + testes a cada push/PR)
 
 ## Como rodar localmente
 
@@ -120,12 +122,62 @@ mensagens neste estágio) fica em `notification_log`, com status `SENT`
 ou `FAILED` (ex: paciente sem e-mail cadastrado), consultável via
 `GET /api/v1/notifications`.
 
+### Disponibilidade e cache (Redis)
+
+`GET /api/v1/professionals/{id}/availability?date=YYYY-MM-DD` devolve os
+horários livres do profissional num dia, a partir de um horário de
+funcionamento fixo da clínica (`app.availability.*`, default 08h-18h,
+slots de 50min — mesmo valor da duração padrão de consulta) menos as
+consultas ativas já agendadas naquele dia.
+
+O resultado é cacheado no Redis (`AvailabilityCache`), chave
+`clinicId:professionalId:date`, TTL de 5min por padrão
+(`app.cache.availability-ttl-seconds`). Criar, reagendar ou mudar o
+status de uma consulta invalida a entrada correspondente
+(`AppointmentService`) — o TTL existe só como rede de segurança, não
+como mecanismo principal de invalidação. O acesso ao cache é feito
+manualmente (não via `@Cacheable`/`@CacheEvict`): no reagendamento, a
+data *antiga* da consulta só é conhecida depois de carregar a entidade
+do banco, o que não dá pra expressar em SpEL de anotação. Toda operação
+de cache é *fail-open* — se o Redis cair, loga um warning e recalcula
+na hora, já que cache é otimização e não pode derrubar o agendamento.
+
 ## Roadmap
 
 - [x] **Fase 1** — Setup, autenticação JWT multi-tenant, CRUD de Clinic/User/Patient/Professional
 - [x] **Fase 2** — Agendamento de consultas com validação de conflito de horário e disponibilidade do profissional
 - [x] **Fase 3** — Prontuário/evolução clínica (`TreatmentRecord`), notificação assíncrona de consulta
-- [ ] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
+- [x] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
+
+## CI
+
+Todo push/PR para `main` roda `.github/workflows/ci.yml`: build + suíte
+completa de testes (`./mvnw -B verify`) num runner `ubuntu-latest`, que já
+vem com Docker — necessário porque os testes de integração sobem Postgres
+e Redis reais via Testcontainers.
+
+## Deploy
+
+A imagem Docker (`Dockerfile`, multi-stage build) e o `docker-compose.yml`
+já cobrem o ambiente completo (app + Postgres + Redis) — qualquer
+plataforma que rode um `Dockerfile` e forneça Postgres/Redis gerenciados
+serve (Render, Railway, Fly.io etc.), sem exigir nenhum vendor específico.
+
+Variáveis de ambiente esperadas em produção:
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | Sim | Conexão com o Postgres |
+| `JWT_SECRET` | Sim | Chave de assinatura dos JWTs (mín. 256 bits) — **trocar o default de dev** |
+| `REDIS_HOST`, `REDIS_PORT` | Sim | Conexão com o Redis (cache de disponibilidade) |
+| `CORS_ALLOWED_ORIGINS` | Sim | Origens do front-end, separadas por vírgula — nunca `*` |
+| `SERVER_PORT` | Não (default `8080`) | Porta HTTP da aplicação |
+| `JWT_EXPIRATION_MS` | Não (default 24h) | Validade do token |
+| `AVAILABILITY_CACHE_TTL_SECONDS` | Não (default 300) | TTL do cache de disponibilidade |
+
+A aplicação expõe `GET /actuator/health` (liberado sem autenticação em
+`SecurityConfig`) para healthcheck da plataforma de deploy — é o mesmo
+endpoint usado no healthcheck do serviço `app` no `docker-compose.yml`.
 
 ## Estrutura de pastas
 
@@ -223,5 +275,9 @@ curl -X POST http://localhost:8080/api/v1/treatment-records \
 
 # 8. Conferir o resultado da notificação assíncrona (token do admin)
 curl "http://localhost:8080/api/v1/notifications?appointmentId=ID_DA_CONSULTA" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI"
+
+# 9. Conferir a disponibilidade do profissional num dia (cacheada no Redis)
+curl "http://localhost:8080/api/v1/professionals/ID_DO_PROFISSIONAL/availability?date=2026-08-10" \
   -H "Authorization: Bearer SEU_TOKEN_AQUI"
 ```

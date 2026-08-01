@@ -43,6 +43,12 @@ public class AvailabilityService {
             @Value("${app.availability.work-start-hour}") int workStartHour,
             @Value("${app.availability.work-end-hour}") int workEndHour,
             @Value("${app.availability.slot-minutes}") int slotMinutes) {
+        if (slotMinutes <= 0) {
+            // slot-minutes <= 0 trava computeSlots num loop infinito (o
+            // Instant do slot nunca avança) — falha já na subida da
+            // aplicação em vez de travar a thread na primeira requisição.
+            throw new IllegalStateException("app.availability.slot-minutes deve ser positivo, valor atual: " + slotMinutes);
+        }
         this.appointmentRepository = appointmentRepository;
         this.professionalService = professionalService;
         this.availabilityCache = availabilityCache;

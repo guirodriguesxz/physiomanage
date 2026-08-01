@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: physiomanage-db
+    environment:
+      POSTGRES_DB: physiomanage
+      POSTGRES_USER: physiomanage
+      POSTGRES_PASSWORD: physiomanage
+    ports:
+      - "5432:5432"
+    volumes:
+      - physiomanage_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U physiomanage"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    container_name: physiomanage-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: physiomanage
+      DB_USER: physiomanage
+      DB_PASSWORD: physiomanage
+      JWT_SECRET: local-dev-secret-change-in-production-please-256-bits
+    ports:
+      - "8080:8080"
+
+volumes:
+  physiomanage_pgdata:

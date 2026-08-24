@@ -1,5 +1,6 @@
 package com.physiomanage.config;
 
+import com.physiomanage.logging.CorrelationIdFilter;
 import com.physiomanage.security.JwtAuthenticationFilter;
 import com.physiomanage.security.RateLimitFilter;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RateLimitFilter rateLimitFilter;
+    private final CorrelationIdFilter correlationIdFilter;
 
     @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
@@ -57,7 +59,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(rateLimitFilter, JwtAuthenticationFilter.class);
+                .addFilterBefore(rateLimitFilter, JwtAuthenticationFilter.class)
+                .addFilterBefore(correlationIdFilter, RateLimitFilter.class);
 
         return http.build();
     }

@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -67,6 +68,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     SecurityContextHolder.getContext().setAuthentication(authToken);
 
                     ClinicContext.set(clinicId, userId, role);
+
+                    // Ver CorrelationIdFilter para o requestId (já no MDC
+                    // antes deste filtro rodar); clinicId/userId/role só
+                    // ficam conhecidos aqui, depois do JWT validado.
+                    MDC.put("clinicId", clinicId.toString());
+                    MDC.put("userId", userId.toString());
+                    MDC.put("role", role);
                 }
             }
         } catch (JwtException | IllegalArgumentException e) {
@@ -82,7 +90,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         } finally {
             // Garante que o ThreadLocal não vaze para a próxima requisição
             // que reaproveite essa mesma thread do pool do servlet container.
+            // Não usa MDC.clear() aqui: requestId (posto pelo
+            // CorrelationIdFilter, que envolve este filtro) ainda precisa
+            // sobreviver até o fim da cadeia.
             ClinicContext.clear();
+            MDC.remove("clinicId");
+            MDC.remove("userId");
+            MDC.remove("role");
         }
     }
 }

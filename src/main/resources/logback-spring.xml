@@ -1,0 +1,23 @@
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!--
+        Log em JSON (um objeto por linha) em vez de texto livre — pronto
+        pra qualquer stack de observabilidade (ELK, Loki, Datadog etc.)
+        sem parser customizado. O nível por logger continua controlado
+        normalmente via `logging.level.*` no application.yml (Spring Boot
+        aplica isso independente do appender usado aqui).
+
+        CorrelationIdFilter e JwtAuthenticationFilter populam o MDC
+        (requestId, clinicId, userId, role) a cada requisição —
+        LogstashEncoder inclui essas entradas automaticamente como campos
+        de topo no JSON.
+    -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

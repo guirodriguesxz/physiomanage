@@ -124,6 +124,28 @@ Redis fora do ar não pode derrubar login/cadastro, já que essa é só uma
 camada extra de defesa (a senha já é validada com BCrypt de qualquer
 forma).
 
+### Logging estruturado e correlação
+
+Todo log sai em JSON (`logback-spring.xml`, `LogstashEncoder`) — pronto
+pra qualquer stack de observabilidade real (ELK, Loki, Datadog etc.) sem
+parser customizado, ao custo de ficar menos legível a olho nu no
+terminal local (trade-off aceito de propósito: log divergente entre dev
+e produção é fonte clássica de "funciona aqui, quebra lá").
+
+`CorrelationIdFilter` — primeiro filtro da cadeia — gera (ou aceita, se
+já veio de um proxy/gateway upstream) um `requestId` por requisição via
+header `X-Request-Id`, devolvido também na resposta. `JwtAuthenticationFilter`
+complementa com `clinicId`/`userId`/`role` assim que o JWT é validado.
+Os dois usam MDC (`org.slf4j.MDC`), que o `LogstashEncoder` inclui
+automaticamente como campos de topo no JSON — qualquer log de qualquer
+classe durante aquela requisição carrega essa correlação sem precisar
+passar contexto manualmente adiante.
+
+Limitação conhecida: MDC é `ThreadLocal`, então não atravessa sozinho
+pra thread do `@Async` da notificação de consulta (Fase 3) — não há log
+lá hoje, então não chegou a importar; se um dia precisar, a solução é um
+`TaskDecorator` no `ThreadPoolTaskExecutor` de `AsyncConfig`.
+
 ### Modelagem de domínio
 
 | Entidade | Papel |
@@ -190,7 +212,7 @@ na hora, já que cache é otimização e não pode derrubar o agendamento.
 - [x] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
 - [ ] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis) ✅,
   rate limiting em `/auth/login` e `/auth/register-clinic` (Redis) ✅,
-  logging estruturado + correlation ID, métricas (Micrometer/Prometheus)
+  logging estruturado (JSON) + correlation ID ✅, métricas (Micrometer/Prometheus)
 
 ## CI
 
@@ -229,15 +251,16 @@ endpoint usado no healthcheck do serviço `app` no `docker-compose.yml`.
 
 ```
 src/main/java/com/physiomanage/
-├── config/          # Security, JPA Auditing
+├── config/          # Security, JPA Auditing, Cache, Async
 ├── controller/       # Endpoints REST
 ├── dto/              # Request/Response (records)
 │   ├── request/
 │   └── response/
 ├── entity/           # Entidades JPA
 ├── exception/         # Exceptions de negócio + handler global
+├── logging/            # Correlation ID (MDC)
 ├── repository/        # Spring Data JPA
-├── security/          # JWT, ClinicContext, filtro de autenticação
+├── security/          # JWT, refresh token, rate limit, ClinicContext
 └── service/            # Regras de negócio
 ```
 

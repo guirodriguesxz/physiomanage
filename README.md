@@ -51,9 +51,15 @@ Com a aplicação rodando: `http://localhost:8080/swagger-ui.html`
 ./mvnw test
 ```
 
-Os testes de integração usam Testcontainers e sobem um Postgres real em
-container automaticamente — não é necessário ter um banco rodando à parte
-para os testes (só é necessário ter o Docker disponível na máquina).
+Dois níveis de teste, ambos no mesmo `./mvnw test`:
+
+- **Unitários** (`*ServiceTest`, `JwtServiceTest`) — Mockito, sem Spring
+  context nem Docker, cobrem a lógica de negócio isolada (máquina de
+  estados de `Appointment`, cálculo de slots de disponibilidade, regras
+  de prontuário, emissão/validação de JWT). Rodam em ~1s.
+- **Integração** (`*IntegrationTest`) — sobem Postgres (e Redis, quando
+  aplicável) reais via Testcontainers, exercitam a API ponta a ponta via
+  MockMvc. Precisam de Docker disponível na máquina.
 
 ## Arquitetura
 
@@ -237,6 +243,10 @@ JSON) continua exigindo autenticação, como qualquer outra rota.
 - [x] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis),
   rate limiting em `/auth/login` e `/auth/register-clinic` (Redis),
   logging estruturado (JSON) + correlation ID, métricas (Micrometer/Prometheus)
+- [x] **Fase 6** — Cobertura de testes unitários (Mockito) para as regras de
+  negócio antes só cobertas ponta a ponta: máquina de estados de
+  `Appointment`, cálculo de disponibilidade, regras de prontuário,
+  notificação simulada, emissão/validação de JWT
 
 ## CI
 

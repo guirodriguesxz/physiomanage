@@ -2,6 +2,7 @@ package com.physiomanage.security;
 
 import com.physiomanage.entity.User;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,13 +67,20 @@ public class JwtService {
         return extractAllClaims(token).get("role", String.class);
     }
 
+    /**
+     * O parser do jjwt já valida a claim `exp` durante o parseSignedClaims
+     * (chamado por extractEmail) e lança ExpiredJwtException pra token
+     * vencido — então esse try/catch é o que garante que este método
+     * cumpre seu próprio contrato de `boolean` que nunca lança, em vez de
+     * depender de o único chamador hoje (JwtAuthenticationFilter) também
+     * capturar JwtException por fora.
+     */
     public boolean isTokenValid(String token, String expectedEmail) {
-        String email = extractEmail(token);
-        return email.equals(expectedEmail) && !isTokenExpired(token);
-    }
-
-    private boolean isTokenExpired(String token) {
-        return extractClaim(token, Claims::getExpiration).before(new Date());
+        try {
+            return extractEmail(token).equals(expectedEmail);
+        } catch (JwtException e) {
+            return false;
+        }
     }
 
     private <T> T extractClaim(String token, Function<Claims, T> resolver) {

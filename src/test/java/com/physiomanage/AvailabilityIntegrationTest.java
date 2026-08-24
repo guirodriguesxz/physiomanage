@@ -63,6 +63,8 @@ class AvailabilityIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+        registry.add("app.rate-limit.register-clinic.max-attempts", () -> 1000);
+        registry.add("app.rate-limit.login.max-attempts", () -> 1000);
     }
 
     @Autowired

@@ -107,6 +107,23 @@ ar → recalcula na hora), a revogação é **fail-closed** — é a única
 garantia real de logout que o sistema tem, então uma falha no Redis aqui
 propaga erro em vez de fingir sucesso.
 
+### Rate limiting (`/auth/login`, `/auth/register-clinic`)
+
+`RateLimitFilter` limita tentativas por IP nessas duas rotas — mitigação
+de brute-force de senha e de spam de criação de tenant. O contador é uma
+janela fixa no Redis (`RateLimiter`), incrementada com `INCR` + `EXPIRE`
+atômicos (script Lua, evita a chave ficar sem TTL se o processo morrer
+entre os dois comandos). Ao estourar o limite (default 5/min login,
+3/min cadastro — `app.rate-limit.*`), a resposta é `429` com header
+`Retry-After`.
+
+Limita só por IP, não por CNPJ/e-mail do corpo — ler o corpo antes do
+controller processar exigiria complexidade adicional (request wrapper)
+que não se paga aqui. E é *fail-open*, como o cache de disponibilidade:
+Redis fora do ar não pode derrubar login/cadastro, já que essa é só uma
+camada extra de defesa (a senha já é validada com BCrypt de qualquer
+forma).
+
 ### Modelagem de domínio
 
 | Entidade | Papel |
@@ -172,8 +189,8 @@ na hora, já que cache é otimização e não pode derrubar o agendamento.
 - [x] **Fase 3** — Prontuário/evolução clínica (`TreatmentRecord`), notificação assíncrona de consulta
 - [x] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
 - [ ] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis) ✅,
-  rate limiting em `/auth/**`, logging estruturado + correlation ID, métricas
-  (Micrometer/Prometheus)
+  rate limiting em `/auth/login` e `/auth/register-clinic` (Redis) ✅,
+  logging estruturado + correlation ID, métricas (Micrometer/Prometheus)
 
 ## CI
 
@@ -201,6 +218,8 @@ Variáveis de ambiente esperadas em produção:
 | `JWT_EXPIRATION_MS` | Não (default 15min) | Validade do access token |
 | `JWT_REFRESH_EXPIRATION_MS` | Não (default 7 dias) | Validade do refresh token |
 | `AVAILABILITY_CACHE_TTL_SECONDS` | Não (default 300) | TTL do cache de disponibilidade |
+| `RATE_LIMIT_LOGIN_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | Não (default 5 / 60) | Limite de tentativas de login por IP |
+| `RATE_LIMIT_REGISTER_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | Não (default 3 / 60) | Limite de cadastro de clínica por IP |
 
 A aplicação expõe `GET /actuator/health` (liberado sem autenticação em
 `SecurityConfig`) para healthcheck da plataforma de deploy — é o mesmo

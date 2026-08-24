@@ -51,6 +51,11 @@ class AuthFlowIntegrationTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
+        // Não é o foco desta classe (ver RateLimitIntegrationTest) — sem
+        // isso, os vários register-clinic/login espalhados pelos testes
+        // aqui esbarrariam no limite de produção.
+        registry.add("app.rate-limit.register-clinic.max-attempts", () -> 1000);
+        registry.add("app.rate-limit.login.max-attempts", () -> 1000);
     }
 
     @Autowired

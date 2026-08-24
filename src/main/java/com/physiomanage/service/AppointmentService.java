@@ -14,6 +14,7 @@ import com.physiomanage.repository.ClinicRepository;
 import com.physiomanage.repository.PatientRepository;
 import com.physiomanage.repository.ProfessionalRepository;
 import com.physiomanage.security.ClinicContext;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -56,6 +57,7 @@ public class AppointmentService {
     private final ClinicRepository clinicRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final AvailabilityCache availabilityCache;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     public Appointment create(AppointmentRequest request) {
@@ -79,6 +81,7 @@ public class AppointmentService {
 
         Appointment saved = saveWithOverlapGuard(appointment);
         evictAvailability(clinicId, professional.getId(), saved.getScheduledAt());
+        countStatus(saved.getStatus());
 
         /*
          * Publicado aqui (ainda dentro da transação) mas só entregue ao
@@ -164,7 +167,18 @@ public class AppointmentService {
         appointment.setStatus(newStatus);
         Appointment saved = appointmentRepository.save(appointment);
         evictAvailability(ClinicContext.getClinicId(), saved.getProfessional().getId(), saved.getScheduledAt());
+        countStatus(newStatus);
         return saved;
+    }
+
+    /**
+     * Contador `appointments_total{status=...}` — dá visibilidade de
+     * volume/mix de consultas por estado (ex: taxa de NO_SHOW,
+     * CANCELLED vs COMPLETED) direto no Prometheus, sem precisar de
+     * query no banco pra isso.
+     */
+    private void countStatus(AppointmentStatus status) {
+        meterRegistry.counter("appointments_total", "status", status.name()).increment();
     }
 
     private int resolveDuration(AppointmentRequest request) {

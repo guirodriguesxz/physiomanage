@@ -1,5 +1,6 @@
 package com.physiomanage.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
@@ -26,29 +27,39 @@ import java.util.UUID;
  *
  * Toda operação é "fail-open": se o Redis estiver fora do ar, loga e
  * segue em frente. Cache é otimização, não pode derrubar o agendamento.
+ *
+ * get() registra `availability_cache_requests_total{result=hit|miss|error}`
+ * — dá visibilidade real de quão efetivo o cache é (e se o Redis está
+ * degradado, via a fatia "error"), sem precisar inferir isso só pelos logs.
  */
 @Component
 public class AvailabilityCache {
 
     private static final Logger log = LoggerFactory.getLogger(AvailabilityCache.class);
     private static final String CACHE_NAME = "availability";
+    private static final String METRIC_NAME = "availability_cache_requests_total";
 
     private final CacheManager cacheManager;
+    private final MeterRegistry meterRegistry;
 
-    public AvailabilityCache(CacheManager cacheManager) {
+    public AvailabilityCache(CacheManager cacheManager, MeterRegistry meterRegistry) {
         this.cacheManager = cacheManager;
+        this.meterRegistry = meterRegistry;
     }
 
     public Optional<List<Instant>> get(UUID clinicId, UUID professionalId, LocalDate date) {
         try {
             Cache cache = cache();
             if (cache == null) {
+                meterRegistry.counter(METRIC_NAME, "result", "miss").increment();
                 return Optional.empty();
             }
             CachedAvailability cached = cache.get(key(clinicId, professionalId, date), CachedAvailability.class);
+            meterRegistry.counter(METRIC_NAME, "result", cached == null ? "miss" : "hit").increment();
             return cached == null ? Optional.empty() : Optional.of(cached.slots());
         } catch (RuntimeException e) {
             log.warn("Falha ao ler cache de disponibilidade, recalculando", e);
+            meterRegistry.counter(METRIC_NAME, "result", "error").increment();
             return Optional.empty();
         }
     }

@@ -9,8 +9,10 @@ containerização) aplicadas a um domínio de negócio real.
 
 - **Java 21 + Spring Boot 3** (Web, Security, Data JPA, Validation)
 - **PostgreSQL** + **Flyway** (migrations versionadas, nunca `ddl-auto=update`)
-- **Redis** — cache de disponibilidade de horários
+- **Redis** — cache de disponibilidade, refresh token, rate limiting
 - **JWT** (biblioteca `jjwt`) para autenticação stateless
+- **Micrometer + Prometheus** — métricas (`/actuator/prometheus`)
+- **Logback + Logstash encoder** — logs estruturados em JSON com correlation ID
 - **springdoc-openapi** — Swagger UI automático
 - **JUnit 5 + Testcontainers** — testes de integração com Postgres e Redis reais
 - **Docker / docker-compose** — ambiente reproduzível com 1 comando
@@ -204,15 +206,37 @@ do banco, o que não dá pra expressar em SpEL de anotação. Toda operação
 de cache é *fail-open* — se o Redis cair, loga um warning e recalcula
 na hora, já que cache é otimização e não pode derrubar o agendamento.
 
+### Métricas (Micrometer/Prometheus)
+
+`GET /actuator/prometheus` expõe as métricas padrão do Actuator (JVM,
+HTTP, HikariCP, etc.) mais duas métricas de negócio:
+
+- `appointments_total{status=...}` — incrementada em toda criação/transição
+  de consulta (`AppointmentService`). Dá visibilidade de volume e mix por
+  estado (ex: taxa de `NO_SHOW`/`CANCELLED` vs `COMPLETED`) sem precisar
+  de query no banco.
+- `availability_cache_requests_total{result=hit|miss|error}` —
+  incrementada em `AvailabilityCache.get`. Mostra o quão efetivo é o
+  cache de disponibilidade de verdade, e distingue "cache vazio" (`miss`)
+  de "Redis degradado" (`error`) — algo que só olhando os logs não dá pra
+  ver na hora.
+
+`/actuator/prometheus` é liberado sem autenticação (igual `/health`) —
+em produção isso deveria ficar restrito por rede/ingress a quem faz o
+scraping (Prometheus), não exposto na internet pública; aqui não há essa
+camada de rede pra restringir, então a decisão consciente foi manter só
+esses dois endpoints sem JWT. `/actuator/metrics` (a versão navegável em
+JSON) continua exigindo autenticação, como qualquer outra rota.
+
 ## Roadmap
 
 - [x] **Fase 1** — Setup, autenticação JWT multi-tenant, CRUD de Clinic/User/Patient/Professional
 - [x] **Fase 2** — Agendamento de consultas com validação de conflito de horário e disponibilidade do profissional
 - [x] **Fase 3** — Prontuário/evolução clínica (`TreatmentRecord`), notificação assíncrona de consulta
 - [x] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
-- [ ] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis) ✅,
-  rate limiting em `/auth/login` e `/auth/register-clinic` (Redis) ✅,
-  logging estruturado (JSON) + correlation ID ✅, métricas (Micrometer/Prometheus)
+- [x] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis),
+  rate limiting em `/auth/login` e `/auth/register-clinic` (Redis),
+  logging estruturado (JSON) + correlation ID, métricas (Micrometer/Prometheus)
 
 ## CI
 

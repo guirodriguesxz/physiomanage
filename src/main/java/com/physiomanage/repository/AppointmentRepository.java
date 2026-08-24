@@ -53,4 +53,59 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
                                        @Param("end") Instant end);
 
     long countByClinicIdAndStatus(UUID clinicId, AppointmentStatus status);
+
+    /**
+     * Base do relatório de resumo (ver ReportService): contagem de
+     * consultas por status num intervalo [start, end). Um status sem
+     * nenhuma consulta no período simplesmente não aparece na lista — o
+     * ReportService preenche os que faltam com zero.
+     */
+    @Query("""
+            SELECT a.status AS status, COUNT(a) AS count
+            FROM Appointment a
+            WHERE a.clinic.id = :clinicId
+              AND a.scheduledAt >= :start
+              AND a.scheduledAt < :end
+            GROUP BY a.status
+            """)
+    List<StatusCount> countByStatusInRange(@Param("clinicId") UUID clinicId,
+                                            @Param("start") Instant start,
+                                            @Param("end") Instant end);
+
+    /**
+     * Base do relatório de produtividade por profissional (ver
+     * ReportService): total de consultas concluídas/canceladas/no-show
+     * num intervalo, por profissional.
+     */
+    @Query("""
+            SELECT a.professional.id AS professionalId,
+                   a.professional.name AS professionalName,
+                   SUM(CASE WHEN a.status = com.physiomanage.entity.AppointmentStatus.COMPLETED THEN 1L ELSE 0L END) AS completed,
+                   SUM(CASE WHEN a.status = com.physiomanage.entity.AppointmentStatus.CANCELLED THEN 1L ELSE 0L END) AS cancelled,
+                   SUM(CASE WHEN a.status = com.physiomanage.entity.AppointmentStatus.NO_SHOW THEN 1L ELSE 0L END) AS noShow,
+                   COUNT(a) AS total
+            FROM Appointment a
+            WHERE a.clinic.id = :clinicId
+              AND a.scheduledAt >= :start
+              AND a.scheduledAt < :end
+            GROUP BY a.professional.id, a.professional.name
+            ORDER BY completed DESC
+            """)
+    List<ProfessionalProductivity> productivityByProfessional(@Param("clinicId") UUID clinicId,
+                                                                @Param("start") Instant start,
+                                                                @Param("end") Instant end);
+
+    interface StatusCount {
+        AppointmentStatus getStatus();
+        long getCount();
+    }
+
+    interface ProfessionalProductivity {
+        UUID getProfessionalId();
+        String getProfessionalName();
+        long getCompleted();
+        long getCancelled();
+        long getNoShow();
+        long getTotal();
+    }
 }

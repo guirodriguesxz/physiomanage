@@ -154,6 +154,31 @@ pra thread do `@Async` da notificação de consulta (Fase 3) — não há log
 lá hoje, então não chegou a importar; se um dia precisar, a solução é um
 `TaskDecorator` no `ThreadPoolTaskExecutor` de `AsyncConfig`.
 
+### Relatórios (`ReportController`, ADMIN only)
+
+Dois endpoints de agregação sobre `Appointment`, ambos recebendo
+`from`/`to` (datas, `to` inclusivo):
+
+- `GET /api/v1/reports/summary` — total de consultas no período,
+  breakdown por status (os 5 status sempre aparecem, com `0` pros que não
+  tiveram nenhuma consulta), taxa de no-show e taxa de cancelamento.
+- `GET /api/v1/reports/professionals-productivity` — por profissional:
+  consultas concluídas/canceladas/no-show/total no período, ordenado por
+  concluídas.
+
+Ambos usam JPQL com `GROUP BY` e, no segundo, `SUM(CASE WHEN ... THEN 1
+ELSE 0 END)` pra contar por status numa única query em vez de N queries
+(uma por status). `from > to` retorna `400`.
+
+Só `ADMIN` acessa — é visão de negócio do tenant inteiro, diferente de
+`RECEPTION`/`PROFESSIONAL`, que operam no dia a dia da agenda.
+
+Testar essa restrição manualmente (não com mock) achou um bug que
+afetava `@PreAuthorize` na aplicação inteira desde a Fase 1: negação de
+autorização lançava `AuthorizationDeniedException`, sem handler
+dedicado em `GlobalExceptionHandler`, e virava `500` em vez de `403` —
+corrigido junto com esta fase.
+
 ### Modelagem de domínio
 
 | Entidade | Papel |
@@ -247,6 +272,10 @@ JSON) continua exigindo autenticação, como qualquer outra rota.
   negócio antes só cobertas ponta a ponta: máquina de estados de
   `Appointment`, cálculo de disponibilidade, regras de prontuário,
   notificação simulada, emissão/validação de JWT
+- [x] **Fase 7** — Relatórios/dashboard: resumo de consultas por status
+  e produtividade por profissional num período (`ADMIN` only); corrigido
+  também um bug de `@PreAuthorize` (500 em vez de 403) que afetava a
+  aplicação inteira
 
 ## CI
 
@@ -394,4 +423,11 @@ curl -X POST http://localhost:8080/api/v1/auth/refresh \
 curl -X POST http://localhost:8080/api/v1/auth/logout \
   -H "Content-Type: application/json" \
   -d '{"refreshToken": "SEU_REFRESH_TOKEN_AQUI"}'
+
+# 12. Relatórios (token do ADMIN)
+curl "http://localhost:8080/api/v1/reports/summary?from=2026-08-01&to=2026-08-31" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI"
+
+curl "http://localhost:8080/api/v1/reports/professionals-productivity?from=2026-08-01&to=2026-08-31" \
+  -H "Authorization: Bearer SEU_TOKEN_AQUI"
 ```

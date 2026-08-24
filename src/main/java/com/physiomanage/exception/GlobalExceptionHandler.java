@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -68,6 +69,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         String message = "Parâmetro '" + ex.getName() + "' com valor inválido";
         return ResponseEntity.badRequest().body(baseBody(HttpStatus.BAD_REQUEST, message));
+    }
+
+    /**
+     * Negação de @PreAuthorize (ex: PROFESSIONAL chamando um endpoint
+     * ADMIN-only) lança AuthorizationDeniedException, que estende esta
+     * classe — sem handler dedicado, caía no handleGeneric genérico e
+     * virava 500 em vez de 403. Bug pré-existente em toda a aplicação
+     * (afeta qualquer @PreAuthorize, não só rotas novas), só descoberto
+     * ao testar manualmente os relatórios da Fase 7 contra um papel
+     * sem permissão — nenhum teste de integração cobria esse caminho
+     * antes.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(baseBody(HttpStatus.FORBIDDEN, "Acesso negado"));
     }
 
     @ExceptionHandler(Exception.class)

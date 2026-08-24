@@ -1,7 +1,9 @@
 package com.physiomanage;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.physiomanage.dto.request.LoginRequest;
+import com.physiomanage.dto.request.RefreshTokenRequest;
 import com.physiomanage.dto.request.RegisterClinicRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,9 +12,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,11 +40,17 @@ class AuthFlowIntegrationTest {
             .withUsername("test")
             .withPassword("test");
 
+    @Container
+    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(6379);
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("spring.data.redis.host", redis::getHost);
+        registry.add("spring.data.redis.port", () -> redis.getMappedPort(6379));
     }
 
     @Autowired
@@ -75,7 +86,8 @@ class AuthFlowIntegrationTest {
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").exists());
+                .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.refreshToken").exists());
     }
 
     @Test
@@ -103,5 +115,94 @@ class AuthFlowIntegrationTest {
                         .contentType("application/json")
                         .content(objectMapper.writeValueAsString(wrongLogin)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldRefreshRotateAndRejectReuseOfOldToken() throws Exception {
+        var registerRequest = new RegisterClinicRequest(
+                "Clínica Refresh",
+                "11122233000144",
+                "Admin Refresh",
+                "admin@clinicarefresh.com",
+                "senha12345"
+        );
+
+        MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register-clinic")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String originalRefreshToken = readRefreshToken(registerResult);
+
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(originalRefreshToken))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andReturn();
+
+        String rotatedRefreshToken = readRefreshToken(refreshResult);
+
+        // rotação: o token usado no refresh não pode ser reaproveitado
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(originalRefreshToken))))
+                .andExpect(status().isUnauthorized());
+
+        // o novo token emitido pela rotação continua válido
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(rotatedRefreshToken))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldRejectRefreshWithGarbageToken() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest("token-que-nunca-existiu"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldRevokeRefreshTokenOnLogout() throws Exception {
+        var registerRequest = new RegisterClinicRequest(
+                "Clínica Logout",
+                "55566677000188",
+                "Admin Logout",
+                "admin@clinicalogout.com",
+                "senha12345"
+        );
+
+        MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register-clinic")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        String refreshToken = readRefreshToken(registerResult);
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(refreshToken))))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(refreshToken))))
+                .andExpect(status().isUnauthorized());
+
+        // logout de um token já revogado continua não sendo erro (idempotente)
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(refreshToken))))
+                .andExpect(status().isNoContent());
+    }
+
+    private String readRefreshToken(MvcResult result) throws Exception {
+        JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
+        return body.get("refreshToken").asText();
     }
 }

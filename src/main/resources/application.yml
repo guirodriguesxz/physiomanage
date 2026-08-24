@@ -33,7 +33,8 @@ server:
 app:
   jwt:
     secret: ${JWT_SECRET:change-this-secret-in-production-min-256-bits-long-please}
-    expiration-ms: ${JWT_EXPIRATION_MS:86400000} # 24h
+    expiration-ms: ${JWT_EXPIRATION_MS:900000} # 15min — curto de propósito, renovação via refresh token
+    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000} # 7 dias
   cors:
     # Lista de origens permitidas, separadas por vírgula. Nunca usar "*"
     # aqui: com allowCredentials(true), origem coringa expõe respostas

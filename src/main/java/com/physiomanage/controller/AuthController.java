@@ -1,6 +1,7 @@
 package com.physiomanage.controller;
 
 import com.physiomanage.dto.request.LoginRequest;
+import com.physiomanage.dto.request.RefreshTokenRequest;
 import com.physiomanage.dto.request.RegisterClinicRequest;
 import com.physiomanage.dto.response.AuthResponse;
 import com.physiomanage.service.AuthService;
@@ -17,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
-@Tag(name = "Autenticação", description = "Cadastro de clínica e login")
+@Tag(name = "Autenticação", description = "Cadastro de clínica, login e renovação/revogação de sessão")
 public class AuthController {
 
     private final AuthService authService;
@@ -30,5 +31,16 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refresh(request));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request);
+        return ResponseEntity.noContent().build();
     }
 }

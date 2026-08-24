@@ -84,6 +84,29 @@ Por esse motivo, o fluxo de autenticação padrão do Spring Security
 global-único) não se encaixava bem aqui — a validação de credenciais é
 feita manualmente em `AuthService`, comparando a senha com BCrypt.
 
+### Refresh token e revogação (Redis)
+
+O access token (JWT) tem vida curta (15min por padrão,
+`app.jwt.expiration-ms`) — expira rápido de propósito, porque um JWT não
+pode ser revogado antes de expirar (é stateless por definição). A sessão
+de fato é sustentada por um **refresh token opaco** (`RefreshTokenService`),
+armazenado no Redis como `hash SHA-256 do token → userId`, com TTL de
+7 dias (`app.jwt.refresh-expiration-ms`). Só o hash é persistido — nunca
+o valor bruto — mesmo racional de guardar senha com BCrypt: um dump do
+Redis não deve entregar tokens utilizáveis.
+
+- `POST /api/v1/auth/refresh` troca um refresh token válido por um novo
+  par access+refresh — **com rotação**: o token usado é sempre invalidado,
+  mesmo se válido. Isso limita o estrago de um token vazado a uma única
+  troca, e um token consumido reaparecendo é sinal de comprometimento.
+- `POST /api/v1/auth/logout` revoga o refresh token informado
+  (idempotente: chamar de novo, ou com um token já revogado, não é erro).
+
+Diferente do cache de disponibilidade (que é *fail-open*: Redis fora do
+ar → recalcula na hora), a revogação é **fail-closed** — é a única
+garantia real de logout que o sistema tem, então uma falha no Redis aqui
+propaga erro em vez de fingir sucesso.
+
 ### Modelagem de domínio
 
 | Entidade | Papel |
@@ -148,6 +171,9 @@ na hora, já que cache é otimização e não pode derrubar o agendamento.
 - [x] **Fase 2** — Agendamento de consultas com validação de conflito de horário e disponibilidade do profissional
 - [x] **Fase 3** — Prontuário/evolução clínica (`TreatmentRecord`), notificação assíncrona de consulta
 - [x] **Fase 4** — Cache de disponibilidade (Redis), CI (GitHub Actions), deploy
+- [ ] **Fase 5** — Observabilidade e hardening: refresh token + revogação (Redis) ✅,
+  rate limiting em `/auth/**`, logging estruturado + correlation ID, métricas
+  (Micrometer/Prometheus)
 
 ## CI
 
@@ -172,7 +198,8 @@ Variáveis de ambiente esperadas em produção:
 | `REDIS_HOST`, `REDIS_PORT` | Sim | Conexão com o Redis (cache de disponibilidade) |
 | `CORS_ALLOWED_ORIGINS` | Sim | Origens do front-end, separadas por vírgula — nunca `*` |
 | `SERVER_PORT` | Não (default `8080`) | Porta HTTP da aplicação |
-| `JWT_EXPIRATION_MS` | Não (default 24h) | Validade do token |
+| `JWT_EXPIRATION_MS` | Não (default 15min) | Validade do access token |
+| `JWT_REFRESH_EXPIRATION_MS` | Não (default 7 dias) | Validade do refresh token |
 | `AVAILABILITY_CACHE_TTL_SECONDS` | Não (default 300) | TTL do cache de disponibilidade |
 
 A aplicação expõe `GET /actuator/health` (liberado sem autenticação em
@@ -280,4 +307,15 @@ curl "http://localhost:8080/api/v1/notifications?appointmentId=ID_DA_CONSULTA" \
 # 9. Conferir a disponibilidade do profissional num dia (cacheada no Redis)
 curl "http://localhost:8080/api/v1/professionals/ID_DO_PROFISSIONAL/availability?date=2026-08-10" \
   -H "Authorization: Bearer SEU_TOKEN_AQUI"
+
+# 10. Renovar o access token quando expirar, usando o refreshToken do login/register
+#     (rotação: o refreshToken usado aqui deixa de valer, use o novo devolvido na resposta)
+curl -X POST http://localhost:8080/api/v1/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "SEU_REFRESH_TOKEN_AQUI"}'
+
+# 11. Logout (revoga o refresh token — o access token em uso continua valendo até expirar)
+curl -X POST http://localhost:8080/api/v1/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "SEU_REFRESH_TOKEN_AQUI"}'
 ```

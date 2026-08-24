@@ -3,10 +3,12 @@ package com.physiomanage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.physiomanage.dto.request.LoginRequest;
 import com.physiomanage.dto.request.RegisterClinicRequest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -15,6 +17,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.util.Objects;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -61,6 +65,22 @@ class RateLimitIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    /**
+     * Os dois testes desta classe batem no mesmo IP (padrão do MockMvc) e
+     * compartilham o mesmo Redis (container estático da classe) — sem
+     * limpar os contadores entre um teste e outro, o setUp do teste de
+     * login (que também chama /auth/register-clinic) poderia esbarrar no
+     * limite já esgotado pelo teste de register-clinic, dependendo da
+     * ordem de execução do JUnit.
+     */
+    @BeforeEach
+    void resetRateLimitCounters() {
+        Objects.requireNonNull(redisTemplate.getConnectionFactory()).getConnection().serverCommands().flushDb();
+    }
 
     @Test
     void shouldBlockRegisterClinicAfterExceedingLimitPerIp() throws Exception {

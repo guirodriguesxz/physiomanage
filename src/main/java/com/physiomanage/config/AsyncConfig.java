@@ -1,5 +1,6 @@
 package com.physiomanage.config;
 
+import com.physiomanage.logging.MdcTaskDecorator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -23,6 +24,8 @@ public class AsyncConfig {
         executor.setMaxPoolSize(5);
         executor.setQueueCapacity(50);
         executor.setThreadNamePrefix("notif-async-");
+        // Leva requestId/clinicId do MDC da requisição para a thread @Async
+        executor.setTaskDecorator(new MdcTaskDecorator());
         executor.initialize();
         return executor;
     }

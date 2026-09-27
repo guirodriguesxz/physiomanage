@@ -1,9 +1,39 @@
 # PhysioManage
 
+[![CI](https://github.com/guirodriguesxz/physiomanage/actions/workflows/ci.yml/badge.svg)](https://github.com/guirodriguesxz/physiomanage/actions/workflows/ci.yml)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3-6DB33F?logo=springboot&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+
 SaaS multi-tenant de gestão para clínicas de fisioterapia. Projeto de portfólio
 back-end construído com Spring Boot 3 / Java 21, focado em mostrar práticas de
 engenharia (autenticação JWT, isolamento multi-tenant, testes de integração,
 containerização) aplicadas a um domínio de negócio real.
+
+## Destaques técnicos
+
+| | |
+|---|---|
+| **Multi-tenancy** | `clinic_id` vem sempre do JWT, nunca do payload. Recurso de outra clínica responde `404` para não revelar que existe. [`TenantIsolationIntegrationTest`](src/test/java/com/physiomanage/TenantIsolationIntegrationTest.java) prova isso por HTTP em todos os recursos |
+| **Agenda sem conflito** | Sobreposição de horário bloqueada no service **e** no banco (constraint de exclusão na migration `V2`), com máquina de estados da consulta |
+| **Sessão segura** | Access JWT de 15 min + refresh token opaco com rotação e revogação no Redis (só o hash SHA-256 é salvo) |
+| **Proteção** | Rate limiting por IP em login/cadastro (script Lua atômico, `429` + `Retry-After`) |
+| **Observabilidade** | Logs JSON com `requestId`/`clinicId` propagados até as threads `@Async`, métricas de negócio no Prometheus |
+| **Testes** | Unitários (Mockito) + integração com **Postgres e Redis reais** via Testcontainers, rodando no CI |
+
+```mermaid
+flowchart LR
+    C[Cliente HTTP] --> CF[CorrelationIdFilter<br/>requestId]
+    CF --> RL[RateLimitFilter<br/>login/cadastro]
+    RL --> JF[JwtAuthenticationFilter<br/>ClinicContext + MDC]
+    JF --> CT[Controllers<br/>@PreAuthorize por role]
+    CT --> SV[Services<br/>filtro por clinicId]
+    SV --> PG[(PostgreSQL<br/>Flyway)]
+    SV --> RD[(Redis<br/>cache · refresh · rate limit)]
+    SV -. @Async .-> NT[NotificationService]
+    NT --> PG
+```
 
 ## Stack
 
@@ -60,6 +90,10 @@ Dois níveis de teste, ambos no mesmo `./mvnw test`:
 - **Integração** (`*IntegrationTest`) — sobem Postgres (e Redis, quando
   aplicável) reais via Testcontainers, exercitam a API ponta a ponta via
   MockMvc. Precisam de Docker disponível na máquina.
+  `TenantIsolationIntegrationTest` monta duas clínicas e verifica que a
+  Clínica B recebe `404`/lista vazia ao tentar ler, alterar ou referenciar
+  pacientes, profissionais, consultas, prontuários, notificações e
+  relatórios da Clínica A.
 
 ## Arquitetura
 
@@ -149,10 +183,12 @@ automaticamente como campos de topo no JSON — qualquer log de qualquer
 classe durante aquela requisição carrega essa correlação sem precisar
 passar contexto manualmente adiante.
 
-Limitação conhecida: MDC é `ThreadLocal`, então não atravessa sozinho
-pra thread do `@Async` da notificação de consulta (Fase 3) — não há log
-lá hoje, então não chegou a importar; se um dia precisar, a solução é um
-`TaskDecorator` no `ThreadPoolTaskExecutor` de `AsyncConfig`.
+Como MDC é `ThreadLocal`, ele não atravessa sozinho para a thread do
+`@Async` da notificação de consulta (Fase 3). `MdcTaskDecorator`,
+registrado no `ThreadPoolTaskExecutor` de `AsyncConfig`, copia o MDC da
+requisição para a tarefa e restaura o contexto anterior da thread do pool
+ao final — sem isso, uma thread reaproveitada herdaria o `requestId` de
+uma requisição que já terminou (coberto em `MdcTaskDecoratorTest`).
 
 ### Relatórios (`ReportController`, ADMIN only)
 

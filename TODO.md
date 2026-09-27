@@ -14,3 +14,5 @@
 ## Feito recentemente (não repetir)
 
 - Fases 1-7 completas e revisadas (ver CONTEXT.md para detalhes e commits).
+- `TenantIsolationIntegrationTest` (isolamento entre clínicas por HTTP, todos os recursos) e
+  `MdcTaskDecorator` (MDC propagado para @Async). Suite: 69 testes.

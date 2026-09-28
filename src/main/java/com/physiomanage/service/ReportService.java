@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +28,7 @@ import java.util.UUID;
 public class ReportService {
 
     private final AppointmentRepository appointmentRepository;
+    private final ZoneId clinicZone;
 
     @Transactional(readOnly = true)
     public AppointmentsSummaryResponse summary(LocalDate from, LocalDate to) {
@@ -66,11 +67,11 @@ public class ReportService {
     }
 
     private Instant startOf(LocalDate date) {
-        return date.atStartOfDay(ZoneOffset.UTC).toInstant();
+        return date.atStartOfDay(clinicZone).toInstant();
     }
 
     private Instant endOf(LocalDate date) {
-        return date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return date.plusDays(1).atStartOfDay(clinicZone).toInstant();
     }
 
     private double rate(long count, long total) {

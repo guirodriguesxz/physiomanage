@@ -25,6 +25,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -71,7 +72,7 @@ class AppointmentServiceTest {
         meterRegistry = new SimpleMeterRegistry();
         appointmentService = new AppointmentService(
                 appointmentRepository, patientRepository, professionalRepository,
-                clinicRepository, eventPublisher, availabilityCache, meterRegistry
+                clinicRepository, eventPublisher, availabilityCache, meterRegistry, ZoneOffset.UTC
         );
         ClinicContext.set(clinicId, UUID.randomUUID(), "ADMIN");
     }
@@ -169,6 +170,17 @@ class AppointmentServiceTest {
 
         assertEquals(AppointmentStatus.CONFIRMED, updated.getStatus());
         assertEquals(1.0, meterRegistry.counter("appointments_total", "status", "CONFIRMED").count());
+    }
+
+    @Test
+    void updateStatus_shouldAllowCancellingBeforeConfirmation() {
+        Appointment appointment = ownedAppointment(AppointmentStatus.SCHEDULED, professionalId);
+        when(appointmentRepository.findById(appointment.getId())).thenReturn(Optional.of(appointment));
+        when(appointmentRepository.save(any(Appointment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Appointment updated = appointmentService.updateStatus(appointment.getId(), AppointmentStatus.CANCELLED);
+
+        assertEquals(AppointmentStatus.CANCELLED, updated.getStatus());
     }
 
     @Test

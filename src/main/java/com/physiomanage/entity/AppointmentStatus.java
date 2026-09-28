@@ -3,6 +3,7 @@ package com.physiomanage.entity;
 /**
  * Máquina de estados da consulta:
  * SCHEDULED -> CONFIRMED -> COMPLETED
+ *           -> CANCELLED
  *                        -> CANCELLED
  *                        -> NO_SHOW
  * Transições inválidas (ex: COMPLETED -> SCHEDULED) devem ser bloqueadas

@@ -52,6 +52,10 @@ app:
       window-seconds: ${RATE_LIMIT_REGISTER_WINDOW_SECONDS:60}
   cache:
     availability-ttl-seconds: ${AVAILABILITY_CACHE_TTL_SECONDS:300}
+  # Fuso da clínica para expediente, agenda e relatórios (datas continuam
+  # persistidas em UTC).
+  timezone: ${APP_TIMEZONE:America/Sao_Paulo}
+
   availability:
     # Horário de funcionamento fixo da clínica (mesmo para todos os
     # profissionais) usado para gerar os slots de disponibilidade.

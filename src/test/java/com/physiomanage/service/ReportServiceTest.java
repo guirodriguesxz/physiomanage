@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,7 +44,7 @@ class ReportServiceTest {
 
     @BeforeEach
     void setUp() {
-        reportService = new ReportService(appointmentRepository);
+        reportService = new ReportService(appointmentRepository, ZoneOffset.UTC);
         ClinicContext.set(clinicId, UUID.randomUUID(), "ADMIN");
     }
 

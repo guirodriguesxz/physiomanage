@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -60,7 +61,7 @@ class AvailabilityServiceTest {
     void setUp() {
         availabilityService = new AvailabilityService(
                 appointmentRepository, professionalService, availabilityCache,
-                WORK_START_HOUR, WORK_END_HOUR, SLOT_MINUTES
+                WORK_START_HOUR, WORK_END_HOUR, SLOT_MINUTES, ZoneOffset.UTC
         );
         ClinicContext.set(clinicId, UUID.randomUUID(), "ADMIN");
     }
@@ -132,9 +133,9 @@ class AvailabilityServiceTest {
     @Test
     void constructor_shouldRejectNonPositiveSlotMinutes() {
         assertThrows(IllegalStateException.class,
-                () -> new AvailabilityService(appointmentRepository, professionalService, availabilityCache, 8, 18, 0));
+                () -> new AvailabilityService(appointmentRepository, professionalService, availabilityCache, 8, 18, 0, ZoneOffset.UTC));
         assertThrows(IllegalStateException.class,
-                () -> new AvailabilityService(appointmentRepository, professionalService, availabilityCache, 8, 18, -10));
+                () -> new AvailabilityService(appointmentRepository, professionalService, availabilityCache, 8, 18, -10, ZoneOffset.UTC));
     }
 
     private Professional activeProfessional() {
@@ -142,6 +143,24 @@ class AvailabilityServiceTest {
         professional.setId(professionalId);
         professional.setActive(true);
         return professional;
+    }
+
+    @Test
+    void shouldInterpretWorkingHoursInClinicTimezone() {
+        ZoneId saoPaulo = ZoneId.of("America/Sao_Paulo");
+        availabilityService = new AvailabilityService(
+                appointmentRepository, professionalService, availabilityCache,
+                WORK_START_HOUR, WORK_END_HOUR, SLOT_MINUTES, saoPaulo
+        );
+        when(professionalService.getById(professionalId)).thenReturn(activeProfessional());
+        when(availabilityCache.get(any(), eq(professionalId), eq(date))).thenReturn(Optional.empty());
+        when(appointmentRepository.findOverlapping(eq(professionalId), any(), any())).thenReturn(List.of());
+
+        List<Instant> slots = availabilityService.getAvailability(professionalId, date);
+
+        // 08:00 em São Paulo (UTC-3) = 11:00 UTC
+        assertEquals(date.atTime(8, 0).atZone(saoPaulo).toInstant(), slots.get(0));
+        assertEquals(Instant.parse("2026-08-25T11:00:00Z"), slots.get(0));
     }
 
     private Instant slotStart(int hour, int minute) {

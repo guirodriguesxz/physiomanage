@@ -25,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -44,7 +44,7 @@ public class AppointmentService {
     private static final int DEFAULT_DURATION_MINUTES = 50;
 
     private static final Map<AppointmentStatus, Set<AppointmentStatus>> ALLOWED_TRANSITIONS = Map.of(
-            AppointmentStatus.SCHEDULED, Set.of(AppointmentStatus.CONFIRMED),
+            AppointmentStatus.SCHEDULED, Set.of(AppointmentStatus.CONFIRMED, AppointmentStatus.CANCELLED),
             AppointmentStatus.CONFIRMED, Set.of(AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED, AppointmentStatus.NO_SHOW),
             AppointmentStatus.COMPLETED, Set.of(),
             AppointmentStatus.CANCELLED, Set.of(),
@@ -58,6 +58,7 @@ public class AppointmentService {
     private final ApplicationEventPublisher eventPublisher;
     private final AvailabilityCache availabilityCache;
     private final MeterRegistry meterRegistry;
+    private final ZoneId clinicZone;
 
     @Transactional
     public Appointment create(AppointmentRequest request) {
@@ -202,7 +203,7 @@ public class AppointmentService {
     }
 
     private void evictAvailability(UUID clinicId, UUID professionalId, Instant scheduledAt) {
-        availabilityCache.evict(clinicId, professionalId, scheduledAt.atZone(ZoneOffset.UTC).toLocalDate());
+        availabilityCache.evict(clinicId, professionalId, scheduledAt.atZone(clinicZone).toLocalDate());
     }
 
     private void checkAvailability(UUID professionalId, Instant scheduledAt, int durationMinutes, UUID excludeAppointmentId) {

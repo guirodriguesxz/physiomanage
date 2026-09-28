@@ -24,7 +24,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,6 +45,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class AvailabilityIntegrationTest {
+
+    private static final ZoneId CLINIC_ZONE = ZoneId.of("America/Sao_Paulo");
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -111,20 +113,20 @@ class AvailabilityIntegrationTest {
 
     @Test
     void shouldReturnAllSlotsWhenProfessionalHasNoAppointments() throws Exception {
-        LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(20);
+        LocalDate date = LocalDate.now(CLINIC_ZONE).plusDays(20);
 
         mockMvc.perform(get("/api/v1/professionals/{id}/availability", professionalId)
                         .header("Authorization", "Bearer " + adminToken)
                         .param("date", date.toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.availableSlots.length()").value(12))
-                .andExpect(jsonPath("$.availableSlots[0]").value(date.atTime(8, 0).atZone(ZoneOffset.UTC).toInstant().toString()));
+                .andExpect(jsonPath("$.availableSlots[0]").value(date.atTime(8, 0).atZone(CLINIC_ZONE).toInstant().toString()));
     }
 
     @Test
     void shouldExcludeBookedSlotAndInvalidateCache() throws Exception {
-        LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(21);
-        Instant firstSlot = date.atTime(8, 0).atZone(ZoneOffset.UTC).toInstant();
+        LocalDate date = LocalDate.now(CLINIC_ZONE).plusDays(21);
+        Instant firstSlot = date.atTime(8, 0).atZone(CLINIC_ZONE).toInstant();
 
         // Primeira chamada popula o cache com os 12 slots livres.
         mockMvc.perform(get("/api/v1/professionals/{id}/availability", professionalId)
@@ -144,7 +146,7 @@ class AvailabilityIntegrationTest {
 
         // Se a invalidação não tivesse funcionado, viria a resposta cacheada
         // (12 slots, incluindo o que acabou de ser agendado).
-        Instant secondSlot = date.atTime(8, 50).atZone(ZoneOffset.UTC).toInstant();
+        Instant secondSlot = date.atTime(8, 50).atZone(CLINIC_ZONE).toInstant();
         mockMvc.perform(get("/api/v1/professionals/{id}/availability", professionalId)
                         .header("Authorization", "Bearer " + adminToken)
                         .param("date", date.toString()))
@@ -164,7 +166,7 @@ class AvailabilityIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn(), "token");
 
-        LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(22);
+        LocalDate date = LocalDate.now(CLINIC_ZONE).plusDays(22);
 
         mockMvc.perform(get("/api/v1/professionals/{id}/availability", professionalId)
                         .header("Authorization", "Bearer " + otherAdminToken)

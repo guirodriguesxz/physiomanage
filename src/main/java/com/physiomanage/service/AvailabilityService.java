@@ -12,7 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -22,8 +22,8 @@ import java.util.UUID;
  * Disponibilidade = horário fixo de funcionamento da clínica (mesmo para
  * todos os profissionais, configurável em app.availability.*) menos os
  * horários já ocupados por consultas ativas do profissional no dia.
- * Trabalha em UTC, mesma convenção usada para scheduledAt em toda a base
- * (jdbc.time_zone: UTC) — simplificação: não modela fuso por clínica nem
+ * O expediente é interpretado no fuso app.timezone (scheduledAt continua
+ * em UTC) — simplificação: um fuso único para todas as clínicas, sem
  * dias fechados/feriados.
  */
 @Service
@@ -35,6 +35,7 @@ public class AvailabilityService {
     private final int workStartHour;
     private final int workEndHour;
     private final int slotMinutes;
+    private final ZoneId clinicZone;
 
     public AvailabilityService(
             AppointmentRepository appointmentRepository,
@@ -42,7 +43,8 @@ public class AvailabilityService {
             AvailabilityCache availabilityCache,
             @Value("${app.availability.work-start-hour}") int workStartHour,
             @Value("${app.availability.work-end-hour}") int workEndHour,
-            @Value("${app.availability.slot-minutes}") int slotMinutes) {
+            @Value("${app.availability.slot-minutes}") int slotMinutes,
+            ZoneId clinicZone) {
         if (slotMinutes <= 0) {
             // slot-minutes <= 0 trava computeSlots num loop infinito (o
             // Instant do slot nunca avança) — falha já na subida da
@@ -55,6 +57,7 @@ public class AvailabilityService {
         this.workStartHour = workStartHour;
         this.workEndHour = workEndHour;
         this.slotMinutes = slotMinutes;
+        this.clinicZone = clinicZone;
     }
 
     @Transactional(readOnly = true)
@@ -76,12 +79,12 @@ public class AvailabilityService {
     }
 
     private List<Instant> computeSlots(UUID professionalId, LocalDate date) {
-        Instant dayStart = date.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant dayEnd = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant dayStart = date.atStartOfDay(clinicZone).toInstant();
+        Instant dayEnd = date.plusDays(1).atStartOfDay(clinicZone).toInstant();
         List<Appointment> busy = appointmentRepository.findOverlapping(professionalId, dayStart, dayEnd);
 
-        Instant workStart = date.atTime(workStartHour, 0).atZone(ZoneOffset.UTC).toInstant();
-        Instant workEnd = date.atTime(workEndHour, 0).atZone(ZoneOffset.UTC).toInstant();
+        Instant workStart = date.atTime(workStartHour, 0).atZone(clinicZone).toInstant();
+        Instant workEnd = date.atTime(workEndHour, 0).atZone(clinicZone).toInstant();
         Duration slotDuration = Duration.ofMinutes(slotMinutes);
 
         List<Instant> freeSlots = new ArrayList<>();

@@ -11,6 +11,10 @@ back-end construído com Spring Boot 3 / Java 21, focado em mostrar práticas de
 engenharia (autenticação JWT, isolamento multi-tenant, testes de integração,
 containerização) aplicadas a um domínio de negócio real.
 
+> **Demo ao vivo:** [physiomanage-web.vercel.app](https://physiomanage-web.vercel.app) · front-end em [physiomanage-web](https://github.com/guirodriguesxz/physiomanage-web) · API em [physiomanage-api.onrender.com](https://physiomanage-api.onrender.com/swagger-ui.html)
+>
+> Login de demonstração: CNPJ `98765432000110` · `admin@demo.com` · `demo12345` (fisioterapeuta: `fisio@demo.com`). A API roda no plano free do Render e pode levar ~50 s para acordar na primeira requisição.
+
 ## Destaques técnicos
 
 | | |

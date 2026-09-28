@@ -1,0 +1,42 @@
+# Blueprint do Render: API + Postgres + Redis (Key Value), tudo no plano free.
+# Deploy: https://render.com/deploy?repo=https://github.com/guirodriguesxz/physiomanage
+services:
+  - type: web
+    name: physiomanage-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SERVER_PORT
+        value: "8080"
+      - key: JAVA_TOOL_OPTIONS # plano free tem 512 MB
+        value: -XX:MaxRAMPercentage=75 -XX:+UseSerialGC
+      - key: DB_HOST
+        fromDatabase: { name: physiomanage-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: physiomanage-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: physiomanage-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: physiomanage-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: physiomanage-db, property: password }
+      - key: REDIS_HOST
+        fromService: { type: keyvalue, name: physiomanage-redis, property: host }
+      - key: REDIS_PORT
+        fromService: { type: keyvalue, name: physiomanage-redis, property: port }
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://physiomanage-web.vercel.app
+
+  - type: keyvalue
+    name: physiomanage-redis
+    plan: free
+    ipAllowList: [] # só a rede interna do Render
+
+databases:
+  - name: physiomanage-db
+    plan: free
+    databaseName: physiomanage
+    user: physiomanage
